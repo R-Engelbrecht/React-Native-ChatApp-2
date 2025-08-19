@@ -1,42 +1,39 @@
 {
   "expo": {
-    "name": "React-Native-ChatAppV2",
-    "slug": "React-Native-ChatAppV2",
+    "name": "react-native-chatApp",
+    "slug": "react-native-chatApp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "reactnativechatappv2",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true
+    "splash": {
+      "image": "./assets/images//splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images//adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.ruanjohannes.reactnativechatApp",
+      "permissions": ["INTERNET"]
     },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+    "extra": {
+      "eas": {
+        "projectId": "d1cba991-e480-4095-b68a-2a9493fd0989"
+      }
     },
+    "owner": "ruanjohannes",
     "plugins": [
-      "expo-router",
       [
-        "expo-splash-screen",
+        "expo-sqlite",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "enableWeb": false
         }
       ]
-    ],
-    "experiments": {
-      "typedRoutes": true
-    }
+    ]
   }
 }

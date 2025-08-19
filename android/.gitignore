@@ -1,0 +1,23 @@
+# OSX
+#
+.DS_Store
+
+# Android/IntelliJ
+#
+build/
+.idea
+.gradle
+local.properties
+*.iml
+*.hprof
+.cxx/
+/android/build
+/android/app/build
+#Chat-Backend
+#apiConfig.js
+#MessagesAPI.js
+#Package-lock.json
+#Package.json
+
+# Bundle artifacts
+*.jsbundle
