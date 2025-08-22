@@ -1,24 +1,25 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRoute } from '@react-navigation/native';
+import axios from 'axios';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  Button,
   FlatList,
-  StyleSheet,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
+  StyleSheet,
+  Text,
+  TextInput,
   TouchableOpacity,
-  Keyboard,
   TouchableWithoutFeedback,
+  View
 } from 'react-native';
-import { useRoute } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { insertMessages, getMessagesByUser, upsertChatUser, updateLatestMessage } from './sqlite';
-import { ngrok } from './apiConfig'; // Ensure this is correctly set in apiConfig.js
+import { ngrok } from './apiConfig';
+import { getMessagesByUser, insertMessages, openDatabase, updateLatestMessage, upsertChatUser,checkMessageExists } from './sqlite';
+
+
 
 export default function Messages({ userData }) {
   const route = useRoute();
@@ -52,6 +53,7 @@ export default function Messages({ userData }) {
         id: msg.id.toString(),
         text: msg.message,
         sender: msg.senderID === Number(userID) ? 'me' : 'them',
+       // timestamp: msg.timestamp,
         timestamp: new Date(msg.timestamp).toLocaleTimeString(),
       }));
       setMessages(formattedMessages);
@@ -62,7 +64,7 @@ export default function Messages({ userData }) {
         flatlistRef.current?.scrollToOffset({ offset: 0, animated: false });
       }, 100);
     } catch (error) {
-      console.error('Error loading messages:', error);
+      console.error('Error loading messages2:', error);
     }
   };
 
@@ -91,21 +93,25 @@ export default function Messages({ userData }) {
         const newMessages = response.data;
         console.log('New messages received:', newMessages.map(m => ({ id: m.id, message: m.message })));
         if (newMessages.length > 0) {
-          for (const msg of newMessages) {
-            const dbMessage = {
-              senderID: msg.sender_id,
-              receiverID: msg.receiver_id,
-              message: msg.message,
-              timestamp: new Date(msg.timestamp).toISOString().slice(0, 19) + 'Z',
-              status: 'sent',
-              serverMessageId: msg.id,
-            };
-            await insertMessages(dbMessage);
-            if (msg.sender_id === Number(chatPartnerID)) {
-              await updateLatestMessage(Number(chatPartnerID), msg.message, dbMessage.timestamp, 'sent');
-              console.log('New message received:', msg.message);
+         for (const msg of newMessages) {
+              // Skip if this serverMessageId already exists
+              const exists = await checkMessageExists(msg.id);
+              if (exists) continue;
+
+              const dbMessage = {
+                senderID: msg.sender_id,
+                receiverID: msg.receiver_id,
+                message: msg.message,
+                timestamp: new Date(msg.timestamp).toISOString().slice(0, 19) + 'Z',
+                status: 'sent',
+                serverMessageId: msg.id,
+              };
+              await insertMessages(dbMessage);
+
+              if (msg.sender_id === Number(chatPartnerID)) {
+                await updateLatestMessage(Number(chatPartnerID), msg.message, dbMessage.timestamp, 'sent');
+              }
             }
-          }
           const validIds = newMessages.map(m => Number(m.id)).filter(id => !isNaN(id) && id > 0);
           if (validIds.length > 0) {
             setLastMessageId(prevId => Math.max(prevId, ...validIds));
@@ -139,6 +145,8 @@ export default function Messages({ userData }) {
       hideSubscription.remove();
     };
   }, []);
+
+  
 
   const sendMessage = async () => {
     console.log('sendMessage called');

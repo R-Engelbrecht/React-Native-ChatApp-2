@@ -7,6 +7,8 @@ const database_size = 200000;
 
 let db;
 
+
+
 export function openDatabase() {
   if (!db) {
     try {
@@ -20,30 +22,46 @@ export function openDatabase() {
   return db;
 }
 
-function executeSqlAsync(db, sql, params = []) {
+export async function checkMessageExists(serverMessageId) {
+  if (!serverMessageId) return false;
+  const db = openDatabase();
+  const res = await executeSqlAsync(
+    db,
+    'SELECT 1 FROM messages WHERE serverMessageId = ? LIMIT 1;',
+    [Number(serverMessageId)]
+  );
+  return res.rows.length > 0;
+}
+
+export function executeSqlAsync(db, sql, params = []) {
   try {
     const statement = db.prepareSync(sql);
     try {
       const result = statement.executeSync(params);
       if (sql.trim().toUpperCase().startsWith('SELECT')) {
-        const rowsArray = result.getAllSync();
+        const rowsArray = result.getAllSync() || [];
         return {
           rows: {
             length: rowsArray.length,
             item: (i) => rowsArray[i],
-            _array: rowsArray,
+            _array: rowsArray, // Match getUsers expectation
+            raw: rowsArray, // Match createTable expectation
           },
         };
       }
       return {
-        lastInsertRowId: result.lastInsertRowId,
+        insertId: result.lastInsertRowId,
         changes: result.changes,
       };
     } catch (error) {
       console.error('SQL execution error:', { sql, params, error });
       throw error;
     } finally {
-      statement.finalizeSync();
+      try {
+        statement.finalizeSync();
+      } catch (finalizeError) {
+        console.error('Error finalizing statement:', finalizeError);
+      }
     }
   } catch (error) {
     console.error('SQL prepare error:', { sql, params, error });
@@ -54,6 +72,10 @@ function executeSqlAsync(db, sql, params = []) {
 export async function createTable() {
   const db = openDatabase();
   try {
+
+       //await executeSqlAsync(db, `DROP TABLE IF EXISTS messages;`);
+   // await executeSqlAsync(db, `DROP TABLE IF EXISTS chat_users;`);
+    //console.log('Dropped existing messages table');
     await executeSqlAsync(db,
       `CREATE TABLE IF NOT EXISTS chat_users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,20 +97,21 @@ export async function createTable() {
         message TEXT NOT NULL,
         timestamp TEXT NOT NULL,
         status TEXT DEFAULT 'sent',
-        serverMessageId INTEGER,
-        UNIQUE(senderID, receiverID, message, timestamp),
-        UNIQUE(serverMessageId)
+        serverMessageId INTEGER
       );`
     );
     console.log('Created messages table');
 
     const tables = await executeSqlAsync(db, "SELECT name FROM sqlite_master WHERE type='table';");
-    console.log('Existing tables:', tables.rows._array.map(t => t.name));
+    const tableNames = tables.rows.raw || [];
+    console.log('Existing tables:', JSON.stringify(tableNames.map(t => t.name), null, 2));
   } catch (error) {
     console.error('Error creating tables:', error);
     throw error;
   }
 }
+
+
 
 export async function insertUsers(user) {
   if (!user || !user.userID || !user.name) {
@@ -121,8 +144,8 @@ export async function getUsers() {
   const db = openDatabase();
   try {
     const results = await executeSqlAsync(db, 'SELECT * FROM chat_users;');
-    const users = results.rows._array;
-    console.log('getUsers result:', JSON.stringify(users, null, 2));
+    const users = results.rows._array || [];
+    console.log('getUsers results:', JSON.stringify(users, null, 2));
     return users;
   } catch (error) {
     console.error('Error getting users:', error);
@@ -130,58 +153,45 @@ export async function getUsers() {
   }
 }
 
-export async function insertMessages({ senderID, receiverID, message, timestamp = new Date().toISOString(), status = 'sent', serverMessageId = null }) {
-  if (!senderID || isNaN(senderID)) {
-    console.error('Invalid senderID:', senderID);
-    throw new Error('senderID is required and must be a valid number');
-  }
-  if (!receiverID || isNaN(receiverID)) {
-    console.error('Invalid receiverID:', receiverID);
-    throw new Error('receiverID is required and must be a valid number');
-  }
-  if (!message || typeof message !== 'string' || message.trim() === '') {
-    console.error('Invalid message:', message);
-    throw new Error('Message is required and must be a non-empty string');
-  }
+export async function insertMessages({
+  senderID,
+  receiverID,
+  message,
+  timestamp = new Date().toISOString(),
+  status = 'sent',
+  serverMessageId = null
+}) {
+  if (!senderID || isNaN(senderID)) throw new Error('senderID is required and must be a valid number');
+  if (!receiverID || isNaN(receiverID)) throw new Error('receiverID is required and must be a valid number');
+  if (!message || typeof message !== 'string' || message.trim() === '') throw new Error('Message is required');
 
   const db = openDatabase();
-  try {
-    // Normalize timestamp to seconds to avoid millisecond differences
-    const normalizedTimestamp = new Date(timestamp).toISOString().slice(0, 19) + 'Z';
-    
-    // Check if message already exists by serverMessageId or other fields
-    const existing = await executeSqlAsync(db,
-      `SELECT id, serverMessageId FROM messages 
-       WHERE (serverMessageId = ? AND serverMessageId IS NOT NULL)
-          OR (senderID = ? AND receiverID = ? AND message = ? AND timestamp LIKE ?);`,
-      [serverMessageId, Number(senderID), Number(receiverID), message, normalizedTimestamp.slice(0, 19) + '%']
-    );
+  const normalizedTimestamp = new Date(timestamp).toISOString().slice(0, 19) + 'Z';
 
-    if (existing.rows.length > 0) {
-      const existingMessage = existing.rows._array[0];
-      if (serverMessageId && !existingMessage.serverMessageId) {
-        // Update existing message with serverMessageId
-        await executeSqlAsync(db,
-          `UPDATE messages SET serverMessageId = ? WHERE id = ?;`,
-          [serverMessageId, existingMessage.id]
-        );
-        console.log(`Updated message with serverMessageId: ${serverMessageId}`);
-      }
-      console.log(`Message not inserted (duplicate): ${JSON.stringify({ senderID, receiverID, message, timestamp, serverMessageId })}`);
-      return existingMessage.id;
+  const existing = await executeSqlAsync(
+    db,
+    `SELECT id, serverMessageId FROM messages
+     WHERE (serverMessageId = ? AND serverMessageId IS NOT NULL)
+        OR (senderID = ? AND receiverID = ? AND message = ? AND timestamp LIKE ?);`,
+    [serverMessageId, Number(senderID), Number(receiverID), message, normalizedTimestamp.slice(0, 19) + '%']
+  );
+
+  if (existing.rows.length > 0) {
+    const row = existing.rows.item(0);
+    if (serverMessageId && !row.serverMessageId) {
+      await executeSqlAsync(db, `UPDATE messages SET serverMessageId = ? WHERE id = ?;`, [serverMessageId, row.id]);
     }
-
-    const result = await executeSqlAsync(db,
-      `INSERT INTO messages (senderID, receiverID, message, timestamp, status, serverMessageId)
-       VALUES (?, ?, ?, ?, ?, ?);`,
-      [Number(senderID), Number(receiverID), message, normalizedTimestamp, status, serverMessageId]
-    );
-    console.log(`Message inserted to DB: ${JSON.stringify({ senderID, receiverID, message, timestamp: normalizedTimestamp, status, serverMessageId, insertId: result.lastInsertRowId })}`);
-    return result.lastInsertRowId;
-  } catch (error) {
-    console.error('Error inserting message:', error);
-    throw error;
+    return row.id;
   }
+
+  const result = await executeSqlAsync(
+    db,
+    `INSERT INTO messages (senderID, receiverID, message, timestamp, status, serverMessageId)
+     VALUES (?, ?, ?, ?, ?, ?);`,
+    [Number(senderID), Number(receiverID), message, normalizedTimestamp, status, serverMessageId]
+  );
+
+  return result.lastInsertRowId;
 }
 
 export async function getMessagesByUser(currentUserID, chatPartnerID) {
@@ -193,10 +203,10 @@ export async function getMessagesByUser(currentUserID, chatPartnerID) {
       `SELECT * FROM messages
        WHERE (senderID = ? AND receiverID = ?)
           OR (senderID = ? AND receiverID = ?)
-       ORDER BY timestamp ASC;`,
+       ORDER BY datetime(timestamp) asc, id ASC;`,
       [Number(currentUserID), Number(chatPartnerID), Number(chatPartnerID), Number(currentUserID)]
     );
-    const messages = results.rows._array;
+    const messages = results.rows.raw || [];
     console.log('Messages retrieved from DB:', JSON.stringify(messages, null, 2));
     return messages;
   } catch (error) {
@@ -253,7 +263,7 @@ export async function updateLatestMessage(userID, message, timestamp, state = 's
 export async function getAllChatUsers() {
   const db = openDatabase();
   try {
-    const results = await executeSqlAsync(db, `SELECT * FROM chat_users ORDER BY LatestMessageTime DESC;`);
+    const results = await executeSqlAsync(db, `SELECT * FROM chat_users ORDER BY LatestMessageTime desc;`);
     console.log('getAllChatUsers result:', JSON.stringify(results.rows._array, null, 2));
     return results.rows._array;
   } catch (error) {
@@ -292,7 +302,7 @@ export async function getAllMessages() {
   try {
     const results = await executeSqlAsync(
       db,
-      'SELECT * FROM messages ORDER BY id DESC;'
+      'SELECT * FROM messages ORDER BY id desc;'
     );
     return results.rows._array;
   } catch (error) {
@@ -301,11 +311,38 @@ export async function getAllMessages() {
   }
 }
 
+export const saveMessagesToDB = async (messages) => {
+  if (!db) await initDB();
+  return new Promise((resolve, reject) => {
+    db.transaction(tx => {
+      messages.forEach(msg => {
+        // Ensure your Messages table has a UNIQUE constraint on a server-side message ID if possible
+        // to prevent duplicates, or handle it with INSERT OR IGNORE / REPLACE.
+        // For simplicity, this is an INSERT. Consider adding an 'id_from_server' column.
+        tx.executeSql(
+          `INSERT INTO Messages (id, sender_id, receiver_id, message, timestamp) 
+           VALUES (?, ?, ?, ?, ?) 
+           ON CONFLICT(id) DO UPDATE SET 
+           message=excluded.message, timestamp=excluded.timestamp`, // Example: Update if server ID conflicts
+          [msg.id, msg.sender_id, msg.receiver_id, msg.message, msg.timestamp],
+          () => {},
+          (_, error) => {
+            console.error('Error inserting message into DB:', msg.id, error);
+            // Optionally, you could collect errors and reject outside the loop
+          }
+        );
+      });
+    }, 
+    (error) => reject(error), 
+    () => resolve());
+  });
+};
+
 export async function resetDatabase() {
   const db = openDatabase();
   try {
-    await executeSqlAsync(db, 'DROP TABLE IF EXISTS messages');
-    await executeSqlAsync(db, 'DROP TABLE IF EXISTS chat_users');
+    await executeSqlAsync(db, 'delete from messages ');
+    await executeSqlAsync(db, 'delete from chat_users');
 
     await executeSqlAsync(db,
       `CREATE TABLE IF NOT EXISTS chat_users (
@@ -327,9 +364,7 @@ export async function resetDatabase() {
         message TEXT NOT NULL,
         timestamp TEXT NOT NULL,
         status TEXT DEFAULT 'sent',
-        serverMessageId INTEGER,
-        UNIQUE(senderID, receiverID, message, timestamp),
-        UNIQUE(serverMessageId)
+        serverMessageId INTEGER
       );`
     );
     console.log('Database reset successfully');

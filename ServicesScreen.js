@@ -16,7 +16,7 @@ export default function ServicesScreen() {
         console.error('Error loading messages:', err);
       }
     }
-    loadMessages();
+   // loadMessages();
   }, []);
 
   const handleReset = async () => {
@@ -31,7 +31,7 @@ export default function ServicesScreen() {
           onPress: async () => {
             try {
               await resetDatabase();         // clear SQLite
-              await AsyncStorage.clear();    // optional: clear tokens
+              //await AsyncStorage.clear();    // optional: clear tokens
               await loadMessages();          // refresh UI
               console.log('App data reset');
             } catch (e) {

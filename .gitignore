@@ -32,6 +32,13 @@ yarn-error.*
 
 # local env files
 .env*.local
+apiConfig
 
 # typescript
 *.tsbuildinfo
+
+ # ... other ignored files ...
+
+    # Local environment configuration
+    
+    
