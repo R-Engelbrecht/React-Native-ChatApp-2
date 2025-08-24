@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ngrok } from './apiConfig';
 
@@ -11,120 +11,93 @@ export default function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState('');
   const navigation = useNavigation();
 
-  const handleRegister = async () => {
-    console.log (ngrok);
+  // Save user info + token
+  const saveUserSession = async (userID, token, name, email) => {
     try {
-      
-      //const response = await axios.post(`http://192.168.50.241:3000/register`, {
-      const response = await axios.post(`${ngrok}/register`, {
-        name,
-        email,
-       // password,
-      });
-      console.log('Registration response:', response.data);
-      const { token, userID, name: registeredName, email: userEmail } = response.data;
-      console.log('Register response:', { userID, name: registeredName, email: userEmail, token });
-     try 
-     {
-      await AsyncStorage.setItem('remember_token', token);
-      onLogin(token, { userID, name: registeredName, email: userEmail });
-      console.log('Token saved to AsyncStorage:', token);
-     } catch (error) {
-      console.error('Error saving token to AsyncStorage:', error);
-     }
+      await AsyncStorage.setItem("userSession", JSON.stringify({ userID, token, name, email }));
+    } catch (err) {
+      console.error("Error saving session:", err);
+    }
+  };
 
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'MainPage' }],
-      });
+  // Load user session
+  const loadUserSession = async () => {
+    try {
+      const session = await AsyncStorage.getItem("userSession");
+      return session ? JSON.parse(session) : null;
+    } catch (err) {
+      console.error("Error loading session:", err);
+      return null;
+    }
+  };
+
+  // Check session on boot
+  useEffect(() => {
+    (async () => {
+      const session = await loadUserSession();
+      if (session?.token) {
+        try {
+          const verify = await axios.post(`${ngrok}/verify-token`, { token: session.token });
+          const { userID, name, email } = verify.data;
+
+          console.log("Auto-login successful:", userID);
+          onLogin(session.token, { userID, name, email });
+
+          navigation.reset({ index: 0, routes: [{ name: 'MainPage' }] });
+        } catch (err) {
+          console.log("Stored token invalid, showing login screen");
+          await AsyncStorage.removeItem("userSession");
+        }
+      }
+    })();
+  }, []);
+
+  const handleRegister = async () => {
+    try {
+      const response = await axios.post(`${ngrok}/register`, { name, email });
+      const { token, userID, name: registeredName, email: userEmail } = response.data;
+
+      await saveUserSession(userID, token, registeredName, userEmail);
+      onLogin(token, { userID, name: registeredName, email: userEmail });
+
+      navigation.reset({ index: 0, routes: [{ name: 'MainPage' }] });
     } catch (error) {
-      console.error('Registration error2:', error.response?.data || error.message);
+      console.error('Registration error:', error.response?.data || error.message);
       Alert.alert('Registration failed', error.response?.data?.error || 'Something went wrong.');
     }
   };
 
-const handleLogin = async () => {
-  console.log('handleLogin: Starting login process');
-  try {
-    // Check for existing token
-    console.log('handleLogin: Checking for stored token in AsyncStorage');
-    const storedToken = await AsyncStorage.getItem('remember_token');
-    console.log('handleLogin: Stored token:', storedToken);
-
-    if (storedToken) {
-      console.log('handleLogin: Found stored token, attempting to verify');
-      try {
-        const verifyResponse = await axios.post(`${ngrok}/verify-token`, { token: storedToken });
-        console.log('handleLogin: Token verification response:', verifyResponse.data);
-        const { userID, name: registeredName, email: userEmail } = verifyResponse.data;
-        console.log('handleLogin: Token verified successfully:', { userID, name: registeredName, email: userEmail });
-
-        // Token is valid, proceed to MainPage
-        onLogin(storedToken, { userID, name: registeredName, email: userEmail });
-        console.log('handleLogin: Calling onLogin with token and user data');
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'MainPage' }],
-        });
-        console.log('handleLogin: Navigated to MainPage');
-        return;
-      } catch (verifyError) {
-        console.error('handleLogin: Token verification failed:', verifyError.response?.data || verifyError.message);
-        console.log('handleLogin: Proceeding to login due to invalid/expired token');
-      }
-    } else {
-      console.log('handleLogin: No stored token found');
-    }
-
-    // No valid token, proceed with login
-    console.log('handleLogin: Validating input fields');
-    if (!name || !email) {
-      console.log('handleLogin: Missing name or email');
-      Alert.alert('Error', 'Please enter both name and email.');
-      return;
-    }
-    console.log('handleLogin: Input validated, sending login request:', { name, email });
-
-    const response = await axios.post(`${ngrok}/login`, { name, email });
-    console.log('handleLogin: Login response:', response.data);
-    const { token, userID, name: registeredName, email: userEmail } = response.data;
-    console.log('handleLogin: Parsed login response:', { token, userID, name: registeredName, email: userEmail });
-
-    // Save token and user data
+  const handleLogin = async () => {
     try {
-      console.log('handleLogin: Saving token to AsyncStorage');
-      await AsyncStorage.setItem('remember_token', token);
-      console.log('handleLogin: Token saved successfully:', token);
+      if (!name || !email) {
+        Alert.alert('Error', 'Please enter both name and email.');
+        return;
+      }
+
+      const response = await axios.post(`${ngrok}/login`, { name, email });
+      const { token, userID, name: registeredName, email: userEmail } = response.data;
+
+      await saveUserSession(userID, token, registeredName, userEmail);
       onLogin(token, { userID, name: registeredName, email: userEmail });
-      console.log('handleLogin: Called onLogin with token and user data');
-    } catch (storageError) {
-      console.error('handleLogin: Error saving token to AsyncStorage:', storageError);
+
+      navigation.reset({ index: 0, routes: [{ name: 'MainPage' }] });
+    } catch (error) {
+      console.error('Login error:', error.response?.data || error.message);
+      Alert.alert('Login failed', error.response?.data?.error || 'Something went wrong.');
     }
-
-    // Navigate to MainPage
-    console.log('handleLogin: Navigating to MainPage');
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'MainPage' }],
-    });
-    console.log('handleLogin: Navigation complete');
-  } catch (error) {
-    console.error('handleLogin: Login error:', error.response?.data || error.message);
-    Alert.alert('Login failed', error.response?.data?.error || 'Something went wrong.');
-  }
-  console.log('handleLogin: Login process ended');
-};
-
+  };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Register</Text>
+      <Text style={styles.title}>Login / Register</Text>
+
       <TextInput
         placeholder="Name"
         value={name}
         onChangeText={setName}
         style={styles.input}
       />
+
       <TextInput
         placeholder="Email"
         value={email}
@@ -133,15 +106,10 @@ const handleLogin = async () => {
         keyboardType="email-address"
         autoCapitalize="none"
       />
-      {/* <TextInput
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        style={styles.input}
-        secureTextEntry
-      /> */}
+
       <Button title="Register" onPress={handleRegister} />
-      <Button title= "Login" onpress = {handleLogin} />
+      <View style={{ marginTop: 10 }} />
+      <Button title="Login" onPress={handleLogin} />
     </View>
   );
 }

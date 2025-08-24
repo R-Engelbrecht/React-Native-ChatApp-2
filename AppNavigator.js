@@ -1,14 +1,15 @@
-import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import React from 'react';
+import ChatScreen from './ChatScreen';
 import LoginScreen from './Login';
 import MainPage from './MainPage';
 import Messages from './Messages';
-import ChatScreen from './ChatScreen';
 
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigator({ userToken, userData, onLogin }) {
   return (
+   
     <Stack.Navigator
       initialRouteName={userToken ? 'MainPage' : 'Login'}
       screenOptions={{ headerShown: false }}
@@ -30,5 +31,6 @@ export default function AppNavigator({ userToken, userData, onLogin }) {
         children={(props) => <Messages {...props} userData={userData} />}
       />
     </Stack.Navigator>
+    
   );
 }

@@ -31,7 +31,7 @@ export default function ServicesScreen() {
           onPress: async () => {
             try {
               await resetDatabase();         // clear SQLite
-              //await AsyncStorage.clear();    // optional: clear tokens
+              await AsyncStorage.clear();    // optional: clear tokens
               await loadMessages();          // refresh UI
               console.log('App data reset');
             } catch (e) {
@@ -68,7 +68,12 @@ export default function ServicesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f5f5f5' },
+  container: { 
+    flex: 1,
+     padding: 16,
+     paddingTop:50,
+      backgroundColor: '#f5f5f5'
+     },
   header: { fontSize: 18, fontWeight: 'bold', marginBottom: 12 },
   messageItem: {
     backgroundColor: '#fff',

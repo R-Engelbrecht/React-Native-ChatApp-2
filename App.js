@@ -6,6 +6,11 @@ import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './AppNavigator';
 import { ngrok } from './apiConfig';
+import { PaperProvider } from 'react-native-paper';
+ 
+//import {View,Text,Button} from 'react-native';
+//import "./global.js";
+//import {button} from  'heroui-native';
 //import { registerForPushNotificationsAsync } from './PushNotificationConfig.js';
 
 
@@ -16,11 +21,7 @@ export default function App() {
   const [userToken, setUserToken] = useState(null);
   const [userData, setUserData] = useState(null); // { userID, name, email }
 
-  //const ngrok = 'https://c932e71d68a9.ngrok-free.app';
-  
-//   useEffect(() => {
-//   configurePushNotifications();
-// }, []);
+
 
   useEffect(() => {
     async function checkToken() {
@@ -52,12 +53,12 @@ export default function App() {
           console.log('User data:', userResponse.data);
           setUserToken(token);
           setUserData(userResponse.data); // { userID, name, email }
-        } else {
-          console.log('Token invalid or expired');
-          await AsyncStorage.removeItem('remember_token');
-          setUserToken(null);
-          setUserData(null);
-        }
+        }// } else {
+        //   console.log('Token invalid or expired');
+        //   await AsyncStorage.removeItem('remember_token');
+        //   setUserToken(null);
+        //   setUserData(null);
+        // }
       } catch (e) {
         console.error('Failed to verify token or fetch user:', e);
         await AsyncStorage.removeItem('remember_token');
@@ -73,24 +74,37 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center' }}>
-        <ActivityIndicator size="large" />
-      </View>
+      
+            <View className="flex-1 justify-center">
+              <ActivityIndicator size="large" />
+              {console.log('Rendering ActivityIndicator')}
+            </View>
+        
     );
   }
 
   return (
-    <SafeAreaProvider>
-      <NavigationContainer>
-        <AppNavigator
-          userToken={userToken}
-          userData={userData}
-          onLogin={(token, data) => {
-            setUserToken(token);
-            setUserData(data);
-          }}
-        />
-      </NavigationContainer>
-    </SafeAreaProvider>
+
+     
+   <PaperProvider>
+      <SafeAreaProvider>
+        
+          <NavigationContainer>
+            <AppNavigator
+            
+              userToken={userToken}
+              userData={userData}
+              onLogin={(token, data) => {
+                setUserToken(token);
+                setUserData(data);
+              }}
+            />
+            {console.log('Rendering test')}
+          </NavigationContainer>
+        
+      </SafeAreaProvider>
+      </PaperProvider>
+    
   );
 }
+

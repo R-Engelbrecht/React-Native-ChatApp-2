@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRoute } from '@react-navigation/native';
 import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
+import {Button,Card} from 'react-native-paper';
 import {
   FlatList,
   Keyboard,
@@ -16,8 +17,10 @@ import {
   View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { ngrok } from './apiConfig';
-import { getMessagesByUser, insertMessages, openDatabase, updateLatestMessage, upsertChatUser,checkMessageExists } from './sqlite';
+import { getMessagesByUser, insertMessages, updateLatestMessage, upsertChatUser,checkMessageExists } from './sqlite';
+import { Keyframe } from 'react-native-reanimated';
 
 
 
@@ -70,81 +73,80 @@ export default function Messages({ userData }) {
 
   useEffect(() => {
     loadMessages();
-  }, [userID, chatPartnerID]);
+    
+  }, [userID, chatPartnerID,lastMessageId]);
 
   useEffect(() => {
-    if (!userID || !chatPartnerID) return;
+  if (!userID || !chatPartnerID) return;
 
-    let isPolling = false;
+  const isPolling = { current: false }; // make it persist
 
-    const pollInterval = setInterval(async () => {
-      if (isPolling) return;
-      isPolling = true;
-      try {
-        const token = await AsyncStorage.getItem('remember_token');
-        if (!token) return;
+  const pollInterval = setInterval(async () => {
+    if (isPolling.current) return;
+    isPolling.current = true;
 
-        console.log('Polling with lastMessageId:', lastMessageId);
-        const response = await axios.get(`${ngrok}/messages`, {
-          params: { user_id: userID, chat_partner_id: chatPartnerID, last_id: lastMessageId },
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        const newMessages = response.data;
-        console.log('New messages received:', newMessages.map(m => ({ id: m.id, message: m.message })));
-        if (newMessages.length > 0) {
-         for (const msg of newMessages) {
-              // Skip if this serverMessageId already exists
-              const exists = await checkMessageExists(msg.id);
-              if (exists) continue;
-
-              const dbMessage = {
-                senderID: msg.sender_id,
-                receiverID: msg.receiver_id,
-                message: msg.message,
-                timestamp: new Date(msg.timestamp).toISOString().slice(0, 19) + 'Z',
-                status: 'sent',
-                serverMessageId: msg.id,
-              };
-              await insertMessages(dbMessage);
-
-              if (msg.sender_id === Number(chatPartnerID)) {
-                await updateLatestMessage(Number(chatPartnerID), msg.message, dbMessage.timestamp, 'sent');
-              }
-            }
-          const validIds = newMessages.map(m => Number(m.id)).filter(id => !isNaN(id) && id > 0);
-          if (validIds.length > 0) {
-            setLastMessageId(prevId => Math.max(prevId, ...validIds));
-          }
-          await loadMessages();
-          setTimeout(() => {
-            flatlistRef.current?.scrollToOffset({ offset: 0, animated: true });
-          }, 100);
-        }
-      } catch (error) {
-        console.error('Error polling messages:', error);
-      } finally {
-        isPolling = false;
+    try {
+      const token = await AsyncStorage.getItem(`token_${userID}`);
+      if (!token) {
+        console.log(token);
+        console.log("No token found, skipping poll");
+        return;
       }
-    }, 2000);
 
-    return () => clearInterval(pollInterval);
-  }, [userID, chatPartnerID, lastMessageId]);
+      console.log('Polling with lastMessageId:', lastMessageId);
 
-  useEffect(() => {
-    const showSubscription = Keyboard.addListener('keyboardDidShow', (e) => {
-      setKeyboardHeight(e.endCoordinates.height);
-    });
+      const response = await axios.get(`${ngrok}/messages`, {
+        params: { user_id: userID, chat_partner_id: chatPartnerID, last_id: lastMessageId },
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
-      setKeyboardHeight(0);
-    });
+      const newMessages = response.data;
+      if (newMessages.length > 0) {
+        for (const msg of newMessages) {
+          const exists = await checkMessageExists(msg.id);
+          if (exists) continue;
 
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
+          const dbMessage = {
+            senderID: msg.sender_id,
+            receiverID: msg.receiver_id,
+            message: msg.message,
+            timestamp: new Date(msg.timestamp).toISOString().slice(0, 19) + 'Z',
+            status: 'sent',
+            serverMessageId: msg.id,
+          };
+          await insertMessages(dbMessage);
+
+          if (msg.sender_id === Number(chatPartnerID)) {
+            await updateLatestMessage(
+              Number(chatPartnerID),
+              msg.message,
+              dbMessage.timestamp,
+              'sent'
+            );
+          }
+        }
+
+        const validIds = newMessages
+          .map((m) => Number(m.id))
+          .filter((id) => !isNaN(id) && id > 0);
+        if (validIds.length > 0) {
+          setLastMessageId((prevId) => Math.max(prevId, ...validIds));
+        }
+
+        await loadMessages();
+        setTimeout(() => {
+          flatlistRef.current?.scrollToOffset({ offset: 0, animated: true });
+        }, 100);
+      }
+    } catch (error) {
+      console.error('Error polling messages:', error);
+    } finally {
+      isPolling.current = false;
+    }
+  }, 2000);
+
+  return () => clearInterval(pollInterval);
+}, [userID, chatPartnerID]); // 👈 removed lastMessageId
 
   
 
@@ -208,37 +210,52 @@ export default function Messages({ userData }) {
   };
 
   const renderMessage = ({ item }) => (
-    <View
+    <Card
       style={[
         styles.message,
         item.sender === 'me' ? styles.myMessage : styles.theirMessage,
       ]}
     >
-      <Text
-        style={[
-          styles.messageText,
-          item.sender === 'me' ? styles.myMessageText : styles.theirMessageText,
-        ]}
-      >
-        {item.text}
-      </Text>
-      <Text
-        style={[
-          styles.timestamp,
-          item.sender === 'me' ? styles.myTimestamp : styles.theirTimestamp,
-        ]}
-      >
+      <Card.Content>
+        <Text
+          style={[
+            styles.messageText,
+            item.sender === 'me' ? styles.myMessageText : styles.theirMessageText,
+          ]}
+        >
+          {item.text}
+        </Text>
+        <Text
+          style={[
+            styles.timestamp,
+            item.sender === 'me' ? styles.myTimestamp : styles.theirTimestamp,
+          ]}
+        >
+         
         {item.timestamp}
-      </Text>
-    </View>
+        
+        </Text>
+        
+      </Card.Content>
+       
+      
+    </Card>
+   
   );
 
   return (
+    
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: '#252525ff' }}
+       //style={{ flex: 1, backgroundColor: '#252525ff' }}
+      style={styles.container}
       behavior={Platform.OS === 'android' ? 'paddingBottom' : keyboardHeight > 0 ? 'padding' : 'height'}
       keyboardVerticalOffset={insets.top + 44}
     >
+      <LinearGradient
+        colors={['#3b4d53ff', '#00000054']}
+        style={styles.container}
+      >
+      
       <View style={{ flex: 1 }}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <Text style={styles.header}>Chat with {name}</Text>
@@ -298,7 +315,18 @@ export default function Messages({ userData }) {
                 returnKeyType="send"
                 onSubmitEditing={sendMessage}
               />
-              <TouchableOpacity
+              <Button
+                
+                onPress={sendMessage}
+                disabled={isSending}
+                style={[styles.sendButton, isSending && styles.disabledButton]}
+              >
+                <Text style={styles.sendButtonText}>
+                {isSending ? 'Sending...' : 'Send'}
+              </Text>
+                
+              </Button>
+              {/* <TouchableOpacity
               style={[styles.sendButton, isSending && styles.disabledButton]}
               onPress={sendMessage}
               disabled={isSending}
@@ -306,35 +334,44 @@ export default function Messages({ userData }) {
               <Text style={styles.sendButtonText}>
                 {isSending ? 'Sending...' : 'Send'}
               </Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
             </View>
           </TouchableWithoutFeedback>
         </View>
       </View>
+      </LinearGradient>
     </KeyboardAvoidingView>
+    
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#252525ff',
+  },
   header: {
     paddingTop: 30,
     paddingBottom: 20,
+    paddingLeft: 24,
     fontSize: 18,
     fontWeight: 'bold',
-    backgroundColor: '#2c2f30d5',
+    backgroundColor: '#2c2f309c',
     color: '#fff',
-    textAlign: 'center',
+    textAlign: 'left',
   },
   message: {
     marginVertical: 6,
-    padding: 12,
-    borderRadius: 12,
+    paddingLeft: 10,
+    paddingRight:10,
+    
+    borderRadius: 36,
     maxWidth: '90%',
     minWidth: 100,
     //width: 200,
   },
   myMessage: {
-    backgroundColor: '#474747ff',
+    backgroundColor: '#7fb6b8ff',
     alignSelf: 'flex-end',
   },
   theirMessage: {
@@ -345,7 +382,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   myMessageText: {
-    color: '#f7f7f7ff', // White text for my messages
+    color: '#000000ff', // White text for my messages
   },
   theirMessageText: {
     color: '#000000', // Black text for their messages
@@ -356,10 +393,11 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   myTimestamp: {
-    color: '#797979ff', // Light gray for my timestamps
+    color: '#3d3939ff', 
+    
   },
   theirTimestamp: {
-    color: '#333333', // Dark gray for their timestamps
+    color: '#333333', 
   },
   inputContainer: {
     flexDirection: 'row',
@@ -367,6 +405,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     backgroundColor: '#141414ff',
     alignItems: 'center',
+    
   },
   input: {
     flex: 1,
@@ -380,7 +419,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 90,
     right: 20,
-    backgroundColor: '#224d5efa',
+    backgroundColor: '#8fc9e04f',
     borderRadius: 24,
     padding: 12,
     elevation: 5,
@@ -390,14 +429,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
  sendButton: {
-  backgroundColor: '#16546dff',
+  backgroundColor: '#1d899cff',
   borderRadius: 24,
-  paddingHorizontal: 16,
-  paddingVertical: 8,
+  paddingHorizontal: 8,
   alignItems: 'center',
   justifyContent: 'center',
   height: 40,
 },
+
 disabledButton: {
   opacity: 0.5,
 },

@@ -66,7 +66,10 @@ async function createMessagesTable() {
 createMessagesTable();
 
 
-
+// -------- access endpoint ---------
+app.get('/', (req, res) => {
+  res.send('Server is running');
+});
 // ------- Registration Endpoint -------
 app.post('/register', async (req, res) => {
   const { name, email } = req.body;
@@ -182,6 +185,30 @@ app.post('/login', async (req, res) => {
         email: user.Email,
       });
     }
+
+  function verifyToken(req, res, next) {
+  const token = req.headers.authorization?.split('Bearer ')[1];
+  if (!token) return res.status(401).json({ error: 'No token provided' });
+
+  const tokenRequest = new sql.Request();
+  tokenRequest.input('token', sql.VarChar, token);
+  tokenRequest.query(`
+    SELECT user_id
+    FROM dbo.[User_tokens]
+    WHERE token = @token AND expiry > GETDATE()
+  `)
+    .then(result => {
+      if (result.recordset.length === 0) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+      req.userId = result.recordset[0].user_id;
+      next();
+    })
+    .catch(err => {
+      console.error('Token check error:', err);
+      res.status(500).json({ error: 'Token validation failed' });
+    });
+}
 
     // Generate new token
     console.log('POST /login: No valid token found, generating new token');
@@ -319,6 +346,7 @@ app.get('/messages', async (req, res) => {
       ORDER BY timestamp asc;
     `;
     res.json(result.recordset);
+    console.log("Fetching messages with", { user_id, chat_partner_id, last_id });
   } catch (err) {
     console.error('Message fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch messages' });
