@@ -2,9 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import axios from 'axios';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Alert, FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, TouchableWithoutFeedback,Keyboard } from 'react-native';
 import { ngrok } from './apiConfig';
 import { getLatestMessageForUser, getUsers, removeEmptyUsers, upsertChatUser } from './sqlite';
+import {Button,Card} from 'react-native-paper';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function ChatScreen({ userData }) {
   const [search, setSearch] = useState('');
@@ -16,6 +18,7 @@ export default function ChatScreen({ userData }) {
   const scrollRef = useRef(null);
   const POLLING_INTERVAL = 5000; // 5 seconds
   const lastFetchedTimestampRef = useRef(new Date('2025-08-01T00:00:00.000Z').toISOString());
+  const inputRef = useRef(null);
 
   // Format timestamps like "YYYY-MM-DD HH:MM"
   const formatTs = (ts) => {
@@ -23,6 +26,13 @@ export default function ChatScreen({ userData }) {
     const clean = String(ts).replace('T', ' ').replace('Z', '');
     return clean.slice(0, 16);
   };
+
+  const dismissAndClear = () => {
+  inputRef.current?.blur();   
+  Keyboard.dismiss();
+  setSearch('');
+  setResults([]);             
+};
 
   // Hydrate users with latest message + time
   const hydrateUsersWithLatest = useCallback(async (users) => {
@@ -86,7 +96,7 @@ export default function ChatScreen({ userData }) {
         {
           text: 'OK',
           onPress: async () => {
-            await AsyncStorage.removeItem('remember_token');
+            await AsyncStorage.removeItem(`token_${userData?.userID}`);
             navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
           },
         },
@@ -95,21 +105,22 @@ export default function ChatScreen({ userData }) {
     }
 
     try {
-      const token = await AsyncStorage.getItem('remember_token');
-      console.log('pollForNewMessages: Retrieved token:', token);
-      if (!token) {
-        console.log('pollForNewMessages: No token found, redirecting to Login');
-        Alert.alert('Error', 'Session expired. Please log in again.', [
-          {
-            text: 'OK',
-            onPress: async () => {
-              await AsyncStorage.removeItem('remember_token');
-              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-            },
-          },
-        ]);
-        return;
-      }
+    const token = await AsyncStorage.getItem(`token_${userData?.userID}`);
+console.log('pollForNewMessages: Retrieved token for user', userData?.userID, ':', token);
+
+if (!token) {
+  console.log('pollForNewMessages: No token found for user', userData?.userID);
+  Alert.alert('Error', 'Session expired. Please log in again.', [
+    {
+      text: 'OK',
+      onPress: async () => {
+        await AsyncStorage.removeItem(`token_${userData?.userID}`); // clear only this user’s token
+        navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+      },
+    },
+  ]);
+  return;
+}
 
       console.log('pollForNewMessages: Sending request to /messages/new with userId:', userData.userID, 'timestamp:', lastFetchedTimestampRef.current);
       const response = await axios.post(
@@ -170,7 +181,7 @@ export default function ChatScreen({ userData }) {
           {
             text: 'OK',
             onPress: async () => {
-              await AsyncStorage.removeItem('remember_token');
+              await AsyncStorage.removeItem(`token_${userData?.userID}`);
               navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
             },
           },
@@ -231,7 +242,7 @@ export default function ChatScreen({ userData }) {
   async function searchUsers(query) {
     setLoading(true);
     try {
-      const token = await AsyncStorage.getItem('remember_token');
+      const token = await AsyncStorage.getItem(`token_${userData?.userID}`);
       console.log('searchUsers: Retrieved token:', token);
       if (!token) throw new Error('No token found');
 
@@ -251,6 +262,7 @@ export default function ChatScreen({ userData }) {
   }
 
   async function handleUserSelect(user) {
+    dismissAndClear();
     console.log('handleUserSelect: Triggered with user:', user);
     const normalizedUser = {
       userID: Number(user.UserID || user.id),
@@ -282,7 +294,7 @@ export default function ChatScreen({ userData }) {
         {
           text: 'OK',
           onPress: async () => {
-            await AsyncStorage.removeItem('remember_token');
+            await AsyncStorage.removeItem(`token_${userData?.userID}`);
             navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
           },
         },
@@ -304,31 +316,53 @@ export default function ChatScreen({ userData }) {
   }
 
   const renderItem = ({ item }) => (
-    <TouchableOpacity style={styles.item} onPress={() => handleUserSelect(item)}>
-      <Text style={styles.name}>{item.name}</Text>
-      <Text style={styles.email}>{item.email || item.Email}</Text>
-    </TouchableOpacity>
-  );
+    <Card
+    style={styles.item}
+    onPress={() => {
+      dismissAndClear();
+      handleUserSelect(item);
+    }}
+  >
+    <Text style={styles.name}>{item.name}</Text>
+    <Text style={styles.email}>{item.email || item.Email}</Text>
+  </Card>
+);
 
   return (
+
+   
+              
+            
+<TouchableWithoutFeedback onPress={dismissAndClear} accesible = {false}>
+     <LinearGradient
+             colors={['#3b4d53ff', '#031b19bd']}
+             style={styles.background}
+           >
+
+             
     <View style={styles.container}>
       <TextInput
+       ref={inputRef}
         placeholder="Search users by name or email"
         value={search}
         onChangeText={setSearch}
         style={styles.input}
       />
+     
 
       {loading && <Text style={{ padding: 10, color: 'white' }}>Loading...</Text>}
 
       {search.length > 0 && results.length > 0 && (
-        <View style={{ height: results.length * 62 }}>
+        <View style={{ height: results.length * 62,backgroundColor: 'rgba(12, 12, 12, 0)' }}>
           <FlatList
             data={results}
             keyExtractor={(item) => String(item.UserID || item.id)}
             renderItem={renderItem}
             ListEmptyComponent={!loading && <Text style={{ padding: 10 }}>No users found</Text>}
             style={styles.searchList}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            onScrollBeginDrag={dismissAndClear}
           />
         </View>
       )}
@@ -338,9 +372,12 @@ export default function ChatScreen({ userData }) {
         style={styles.userList}
         contentContainerStyle={styles.userListContent}
         showsVerticalScrollIndicator={true}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        onScrollBeginDrag={Keyboard.dismiss}
       >
         {selectedUsers.length === 0 && (
-          <Text style={{ padding: 10, color: 'white' }}>No chats available</Text>
+          <Text style={{ padding: 10, color: 'black' }}>No chats available</Text>
         )}
         {selectedUsers.map((user, index) => (
           <TouchableOpacity
@@ -353,7 +390,7 @@ export default function ChatScreen({ userData }) {
                   {
                     text: 'OK',
                     onPress: async () => {
-                      await AsyncStorage.removeItem('remember_token');
+                      await AsyncStorage.removeItem(`token_${userData?.userID}`);
                       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
                     },
                   },
@@ -379,44 +416,71 @@ export default function ChatScreen({ userData }) {
           </TouchableOpacity>
         ))}
       </ScrollView>
+       
     </View>
+    
+    </LinearGradient>
+    </TouchableWithoutFeedback>
+   
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: '#000000e3' },
+  background: {
+    flex: 1,
+    backgroundColor: '#00000000'
+  },
+
+  container: { flex: 1,
+     padding: 10,
+     backgroundColor: '#29292905',
+     paddingTop: 50,
+    },
   input: {
     height: 40,
-    borderColor: '#363636ff',
+    borderColor: '#00000042',
     borderWidth: 1,
     borderRadius: 24,
     paddingHorizontal: 10,
+    //paddingTop: 20,
     marginBottom: 10,
-    backgroundColor: '#ddeaecff',
-    color: '#000000ff',
+    backgroundColor: '#fdfdfdff',
+    color: '#041e29ff',
   },
   item: {
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
+    borderBottomColor: '#d1c9c9',
+    backgroundColor: '#284f5f10',
+
     minHeight: 60,
   },
-  name: { fontWeight: 'bold' },
-  email: { color: '#666' },
-  userList: { maxHeight: 700, marginVertical: 10 },
+  name: { fontWeight: 'bold',color: '#f5f3f3ff' },
+  email: { color: '#f5f3f3ff' },
+  
+  userList: {
+     maxHeight: 700,
+      marginVertical: 10,
+      backgroundColor: 'rgba(0, 0, 0, 0)' 
+    },
   userListContent: {
     flexDirection: 'column',
     justifyContent: 'flex-start',
     alignItems: 'stretch',
     gap: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0)',
   },
   userItem: {
-    backgroundColor: '#30343dff',
-    padding: 20,
+    backgroundColor: '#071c24a8',
+    //padding: 20,
+    paddingTop:20,
+    paddingBottom:20,
+    paddingLeft:15,
+    paddingRight:15,
     justifyContent: 'flex-start',
-    borderRadius: 12,
-    marginHorizontal: 5,
-    minHeight: 70,
+    borderRadius: 24,
+    marginHorizontal: 1,
+    minHeight: 90,
   },
   chatTextContainer: { flexDirection: 'column' },
   chatName: {
@@ -436,4 +500,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
     alignSelf: 'flex-end',
   },
+  searchList: {
+    maxHeight: 300,
+    borderColor: '#00000091',
+    borderWidth: 1,
+    borderRadius: 8,
+    backgroundColor: '#ffffff09',
+    marginBottom: 10,
+  },
 });
+

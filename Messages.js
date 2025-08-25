@@ -41,6 +41,17 @@ export default function Messages({ userData }) {
   const INPUT_HEIGHT = 60;
   const lastIdRef = useRef(0);
   const [ready, setReady] = useState(false);
+
+  const formatDate = (isoString) => {
+    const d = new Date(isoString);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.toDateString();
+  };
   
 
   const loadMessages = async () => {
@@ -54,14 +65,54 @@ export default function Messages({ userData }) {
 
       const dbMessages = await getMessagesByUser(userID, chatPartnerID);
       console.log('dbMessages:', dbMessages);
-      const formattedMessages = dbMessages.map(msg => ({
-        id: msg.id.toString(),
-        text: msg.message,
-        sender: msg.senderID === Number(userID) ? 'me' : 'them',
-       // timestamp: msg.timestamp,
-        timestamp: new Date(msg.timestamp).toLocaleTimeString(),
-      }));
-      setMessages(formattedMessages);
+
+      const formattedMessages = dbMessages.map(msg => {
+        const ts = new Date(msg.timestamp); // full Date
+        return {
+          id: msg.id.toString(),
+          text: msg.message,
+          sender: msg.senderID === Number(userID) ? 'me' : 'them',
+          timestamp: ts.toISOString(),
+          //timestamp: new Date(msg.timestamp).toLocaleTimeString(),
+          displayTime: ts.toLocaleTimeString(), // nice clock text for bubble
+        };
+      });
+
+      // const formattedMessages = dbMessages.map(msg => ({
+      //   id: msg.id.toString(),
+      //   text: msg.message,
+      //   sender: msg.senderID === Number(userID) ? 'me' : 'them',
+      //     timestamp: ts.toISOString(), // keep full date string
+      //   displayTime: ts.toLocaleTimeString(), // nice clock text for bubble
+       
+      // }));
+      // Insert date separators
+      const addDateSeparators = (msgs) => {
+        const result = [];
+        let lastDate = null;
+
+        msgs.forEach((msg) => {
+          const msgDate = formatDate(msg.timestamp); 
+
+          if (msgDate !== lastDate) {
+            result.push({
+              id: `date-${msgDate}`,
+              type: 'date',
+              date: msgDate,
+            });
+            lastDate = msgDate;
+          }
+
+          result.push({
+            ...msg,
+            type: 'message',
+          });
+        });
+
+        return result;
+      };
+
+setMessages(addDateSeparators(formattedMessages));
       const validIds = dbMessages.map(m => Number(m.serverMessageId)).filter(id => !isNaN(id) && id > 0);
       setLastMessageId(validIds.length > 0 ? Math.max(...validIds) : 0);
 
@@ -247,7 +298,19 @@ if (validIds.length > 0) {
     }
   };
 
-  const renderMessage = ({ item }) => (
+  const renderMessage = ({ item }) => {
+    if (item.type === 'date') {
+      return (
+        <View style = {styles.dateContainer}>
+        <View style={styles.dateBubble}> 
+          <Text style = {styles.dateText}>
+          {item.date}
+          </Text>
+        </View>
+        </View>
+      );
+    }
+    return (
     <Card
       style={[
         styles.message,
@@ -269,8 +332,9 @@ if (validIds.length > 0) {
             item.sender === 'me' ? styles.myTimestamp : styles.theirTimestamp,
           ]}
         >
+           {item.displayTime}
          
-        {item.timestamp}
+       
         
         </Text>
         
@@ -280,6 +344,7 @@ if (validIds.length > 0) {
     </Card>
    
   );
+};
 
   return (
     
@@ -341,7 +406,7 @@ if (validIds.length > 0) {
               style={[
                 styles.inputContainer,
                 {
-                  paddingBottom: keyboardHeight > 0 ? keyboardHeight + insets.bottom + 20 : insets.bottom + 20,
+                  paddingBottom: keyboardHeight > 0 ? keyboardHeight + insets.bottom + 10 : insets.bottom + 10,
                 },
               ]}
             >
@@ -433,7 +498,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 10,
     paddingTop: 8,
-    backgroundColor: '#141414ff',
+    backgroundColor: '#0e0d0d05',
     alignItems: 'center',
     
   },
@@ -474,6 +539,21 @@ sendButtonText: {
   color: '#fff',
   fontWeight: 'bold',
   fontSize: 16,
+},
+dateContainer: {
+  alignItems: 'center',
+  marginVertical: 10,
+},
+dateBubble: {
+  backgroundColor: '#2c8386ff',
+  borderRadius: 20,
+  paddingVertical: 4,
+  paddingHorizontal: 12,
+},
+dateText: {
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: '600',
 },
 
 });
