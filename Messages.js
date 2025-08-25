@@ -39,6 +39,8 @@ export default function Messages({ userData }) {
 
   const insets = useSafeAreaInsets();
   const INPUT_HEIGHT = 60;
+  const lastIdRef = useRef(0);
+  const [ready, setReady] = useState(false);
   
 
   const loadMessages = async () => {
@@ -72,14 +74,34 @@ export default function Messages({ userData }) {
   };
 
   useEffect(() => {
+  if (userID && chatPartnerID) {
     loadMessages();
-    
-  }, [userID, chatPartnerID,lastMessageId]);
+    setReady(true); 
+  }
+}, [userID, chatPartnerID]);
 
   useEffect(() => {
-  if (!userID || !chatPartnerID) return;
+  const show = Keyboard.addListener("keyboardDidShow", e => {
+    setKeyboardHeight(e.endCoordinates.height);
+  });
+  const hide = Keyboard.addListener("keyboardDidHide", () => {
+    setKeyboardHeight(0);
+  });
+  return () => {
+    show.remove();
+    hide.remove();
+  };
+}, []);
 
-  const isPolling = { current: false }; // make it persist
+  useEffect(() => {
+    loadMessages();
+    
+  }, [userID, chatPartnerID]);
+
+  useEffect(() => {
+  if (!userID || !chatPartnerID || !ready) return;
+
+  const isPolling = { current: false }; 
 
   const pollInterval = setInterval(async () => {
     if (isPolling.current) return;
@@ -93,60 +115,76 @@ export default function Messages({ userData }) {
         return;
       }
 
-      console.log('Polling with lastMessageId:', lastMessageId);
+    console.log('Polling with lastMessageId:', lastIdRef.current);
 
       const response = await axios.get(`${ngrok}/messages`, {
-        params: { user_id: userID, chat_partner_id: chatPartnerID, last_id: lastMessageId },
+        params: { user_id: userID, chat_partner_id: chatPartnerID, last_id: lastIdRef.current },
         headers: { Authorization: `Bearer ${token}` },
       });
 
+
       const newMessages = response.data;
       if (newMessages.length > 0) {
-        for (const msg of newMessages) {
-          const exists = await checkMessageExists(msg.id);
-          if (exists) continue;
+  for (const msg of newMessages) {
+    const exists = await checkMessageExists(msg.id);
+    if (exists) continue;
 
-          const dbMessage = {
-            senderID: msg.sender_id,
-            receiverID: msg.receiver_id,
-            message: msg.message,
-            timestamp: new Date(msg.timestamp).toISOString().slice(0, 19) + 'Z',
-            status: 'sent',
-            serverMessageId: msg.id,
-          };
-          await insertMessages(dbMessage);
+    const dbMessage = {
+      senderID: msg.sender_id,
+      receiverID: msg.receiver_id,
+      message: msg.message,
+      timestamp: new Date(msg.timestamp).toISOString().slice(0, 19) + 'Z',
+      status: 'sent',
+      serverMessageId: msg.id,
+    };
+    await insertMessages(dbMessage);
 
-          if (msg.sender_id === Number(chatPartnerID)) {
-            await updateLatestMessage(
-              Number(chatPartnerID),
-              msg.message,
-              dbMessage.timestamp,
-              'sent'
-            );
-          }
-        }
-
-        const validIds = newMessages
-          .map((m) => Number(m.id))
-          .filter((id) => !isNaN(id) && id > 0);
-        if (validIds.length > 0) {
-          setLastMessageId((prevId) => Math.max(prevId, ...validIds));
-        }
-
-        await loadMessages();
-        setTimeout(() => {
-          flatlistRef.current?.scrollToOffset({ offset: 0, animated: true });
-        }, 100);
-      }
-    } catch (error) {
-      console.error('Error polling messages:', error);
-    } finally {
-      isPolling.current = false;
+    if (msg.sender_id === Number(chatPartnerID)) {
+      await updateLatestMessage(
+        Number(chatPartnerID),
+        msg.message,
+        dbMessage.timestamp,
+        'sent'
+      );
     }
-  }, 2000);
+  }
+
+  const validIds = newMessages
+  .map((m) => Number(m.id))
+  .filter((id) => !isNaN(id) && id > 0);
+
+if (validIds.length > 0) {
+  const next = Math.max(lastIdRef.current, ...validIds);
+  lastIdRef.current = next;
+  setLastMessageId(next);
+  setReady(true);
+}
+
+  setMessages((prev) => [
+    ...prev,
+    ...newMessages.map((msg) => ({
+      id: msg.id.toString(),
+      text: msg.message,
+      sender: msg.sender_id === Number(userID) ? 'me' : 'them',
+      timestamp: new Date(msg.timestamp).toLocaleTimeString(),
+    })),
+  ]);
+
+  await loadMessages();
+
+      setTimeout(() => {
+        flatlistRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }, 100);
+    }
+  } catch (error) {
+    console.error('Error polling messages:', error);
+  } finally {
+    isPolling.current = false;
+  }
+}, 2000);
 
   return () => clearInterval(pollInterval);
-}, [userID, chatPartnerID]); // 👈 removed lastMessageId
+}, [userID, chatPartnerID, ready]) 
 
   
 
@@ -248,7 +286,7 @@ export default function Messages({ userData }) {
     <KeyboardAvoidingView
        //style={{ flex: 1, backgroundColor: '#252525ff' }}
       style={styles.container}
-      behavior={Platform.OS === 'android' ? 'paddingBottom' : keyboardHeight > 0 ? 'padding' : 'height'}
+       behavior={Platform.OS === 'android' ? 'paddingBottom' : keyboardHeight > 0 ? 'padding' : 'height'}
       keyboardVerticalOffset={insets.top + 44}
     >
       <LinearGradient
@@ -326,15 +364,7 @@ export default function Messages({ userData }) {
               </Text>
                 
               </Button>
-              {/* <TouchableOpacity
-              style={[styles.sendButton, isSending && styles.disabledButton]}
-              onPress={sendMessage}
-              disabled={isSending}
-            >
-              <Text style={styles.sendButtonText}>
-                {isSending ? 'Sending...' : 'Send'}
-              </Text>
-            </TouchableOpacity> */}
+              
             </View>
           </TouchableWithoutFeedback>
         </View>
